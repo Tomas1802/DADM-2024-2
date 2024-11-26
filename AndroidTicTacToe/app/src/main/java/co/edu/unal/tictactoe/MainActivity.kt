@@ -1,16 +1,18 @@
 package co.edu.unal.tictactoe
 
-import android.graphics.Color
+import android.app.AlertDialog
+import android.app.Dialog
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 
-class MainActivity : ComponentActivity() {
 
+class MainActivity : ComponentActivity() {
     private lateinit var mGame: TicTacToeGame
     private lateinit var mBoardButtons: Array<Button>
     private lateinit var buttonRestart: Button
@@ -61,8 +63,76 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        startNewGame()
-        return true
+        return when (item.itemId) {
+            R.id.new_game -> {
+                startNewGame()
+                true
+            }
+            R.id.ai_difficulty -> {
+                showDialog(Companion.DIALOG_DIFFICULTY_ID)
+                true
+            }
+            R.id.quit -> {
+                showDialog(Companion.DIALOG_QUIT_ID)
+                true
+            }
+            R.id.about -> { // New "About" menu option
+                showDialog(DIALOG_ABOUT_ID)
+                true
+            }
+            else -> false
+        }
+    }
+
+    override fun onCreateDialog(id: Int): Dialog? {
+        var dialog: Dialog? = null
+        val builder = AlertDialog.Builder(this)
+
+        when (id) {
+            DIALOG_DIFFICULTY_ID -> {
+                builder.setTitle(R.string.difficulty_choose)
+                val levels = arrayOf<CharSequence>(
+                    getString(R.string.difficulty_easy),
+                    getString(R.string.difficulty_harder),
+                    getString(R.string.difficulty_expert)
+                )
+
+                // TODO: Set selected, an integer (0 to n-1), for the Difficulty dialog.
+                // Assuming `selected` is the currently selected difficulty level.
+                var selected = mGame.getDifficultyLevel().ordinal// Replace with how your game retrieves difficulty
+                builder.setSingleChoiceItems(levels, selected) { dialogInterface, item ->
+                    dialogInterface.dismiss() // Close dialog
+
+                    // TODO: Set the difficulty level in the game.
+                    mGame.setDifficultyLevel(TicTacToeGame.DifficultyLevel.values()[item]) // Replace with how your game sets difficulty level.
+
+                    // Display the selected difficulty level
+                    Toast.makeText(applicationContext, levels[item], Toast.LENGTH_SHORT).show()
+                    startNewGame()
+                }
+
+                dialog = builder.create()
+            }
+            DIALOG_QUIT_ID -> {
+                // Create the quit confirmation dialog
+                builder.setMessage(R.string.quit_question)
+                    .setCancelable(false)
+                    .setPositiveButton(R.string.yes) { _, _ ->
+                        this.finish()
+                    }
+                    .setNegativeButton(R.string.no, null)
+                dialog = builder.create()
+            }
+            DIALOG_ABOUT_ID -> { // New "About" dialog
+                val customView = layoutInflater.inflate(R.layout.about_dialog, null) // Inflate custom view
+                builder.setView(customView)
+                    .setTitle(R.string.about_title)
+                    .setPositiveButton(R.string.ok, null) // Add "OK" button to dismiss the dialog
+                dialog = builder.create()
+            }
+        }
+
+        return dialog
     }
 
     private fun startNewGame() {
@@ -145,5 +215,11 @@ class MainActivity : ComponentActivity() {
         findViewById<TextView>(R.id.winsTextView).text = "Wins: $wins"
         findViewById<TextView>(R.id.lossesTextView).text = "Losses: $losses"
         findViewById<TextView>(R.id.tiesTextView).text = "Ties: $ties"
+    }
+
+    companion object {
+        const val DIALOG_DIFFICULTY_ID = 0
+        const val DIALOG_QUIT_ID = 1
+        const val DIALOG_ABOUT_ID = 2
     }
 }
