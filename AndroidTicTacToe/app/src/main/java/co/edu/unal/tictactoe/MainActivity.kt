@@ -2,7 +2,10 @@ package co.edu.unal.tictactoe
 
 import android.app.AlertDialog
 import android.app.Dialog
+import android.content.SharedPreferences
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
@@ -10,13 +13,18 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import co.edu.unal.tictactoe.TicTacToeGame.DifficultyLevel
 
 
 class MainActivity : ComponentActivity() {
+    private lateinit var prefs: SharedPreferences
     private lateinit var mGame: TicTacToeGame
     private lateinit var mBoardButtons: Array<Button>
     private lateinit var buttonRestart: Button
     private lateinit var mInfoTextView: TextView
+    private var gameOver = false
+    private var currentTurn = 1
+    private val handler = Handler(Looper.getMainLooper())
     private var isHumanFirst = true
     private var mGameOver = false
     private var wins = 0
@@ -26,6 +34,25 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.main)
+
+        prefs = getSharedPreferences("tic_tac_toe_prefs", MODE_PRIVATE)
+
+        // Restore persistent data
+        wins = prefs.getInt("humanWins", 0)
+        losses = prefs.getInt("computerWins", 0)
+        ties = prefs.getInt("ties", 0)
+
+        // Update the UI with restored data
+        updateStats()
+
+        // Restore game state
+        if (savedInstanceState != null) {
+            gameOver = savedInstanceState.getBoolean("gameOver")
+            currentTurn = savedInstanceState.getInt("currentTurn")
+            if (!gameOver && currentTurn == 2) {
+                handler.postDelayed({ mGame.getComputerMove() }, 1000)
+            }
+        }
 
         mBoardButtons = arrayOf(
             findViewById(R.id.button1),
@@ -43,6 +70,10 @@ class MainActivity : ComponentActivity() {
         buttonRestart = findViewById(R.id.button_restart)
 
         mGame = TicTacToeGame()
+
+        val difficulty = loadDifficulty()
+        mGame.setDifficultyLevel(difficulty)
+
         startNewGame()
 
         for (i in mBoardButtons.indices) {
@@ -53,7 +84,60 @@ class MainActivity : ComponentActivity() {
             startNewGame()
             buttonRestart.visibility = View.INVISIBLE
         }
+    }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+
+        // Save the game board state
+        outState.putCharArray("board", mGame.getBoard())
+
+        // Save the current game state
+        outState.putBoolean("gameOver", mGameOver)
+        outState.putBoolean("isHumanFirst", isHumanFirst)
+
+        // Save player statistics
+        outState.putInt("wins", wins)
+        outState.putInt("losses", losses)
+        outState.putInt("ties", ties)
+
+        // Save the current info text
+        outState.putString("infoText", mInfoTextView.text.toString())
+        saveDifficulty(mGame.getDifficultyLevel())
+    }
+
+    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
+        super.onRestoreInstanceState(savedInstanceState)
+
+        // Restore the game board state
+        mGame.setBoard(savedInstanceState.getCharArray("board")!!)
+
+        // Restore the current game state
+        mGameOver = savedInstanceState.getBoolean("gameOver")
+        isHumanFirst = savedInstanceState.getBoolean("isHumanFirst")
+
+        // Restore player statistics
+        wins = savedInstanceState.getInt("wins")
+        losses = savedInstanceState.getInt("losses")
+        ties = savedInstanceState.getInt("ties")
+
+        // Restore the current info text
+        mInfoTextView.text = savedInstanceState.getString("infoText")
+        if(mGameOver) buttonRestart.visibility = View.VISIBLE
+        // Update the UI elements to reflect restored state
+        updateBoard()
+        updateStats()
+    }
+
+    override fun onStop() {
+        super.onStop()
+
+        // Save persistent data
+        val editor = prefs.edit()
+        editor.putInt("humanWins", wins)
+        editor.putInt("computerWins", losses)
+        editor.putInt("ties", ties)
+        editor.apply() // Save changes asynchronously
     }
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
@@ -80,8 +164,32 @@ class MainActivity : ComponentActivity() {
                 showDialog(DIALOG_ABOUT_ID)
                 true
             }
+            R.id.reset_scores -> { // Handle reset scores
+                resetScores()
+                true
+            }
             else -> false
         }
+    }
+
+    private fun resetScores() {
+        // Reset score variables
+        wins = 0
+        losses = 0
+        ties = 0
+
+        // Update SharedPreferences to save reset scores
+        val editor = prefs.edit()
+        editor.putInt("humanWins", wins)
+        editor.putInt("computerWins", losses)
+        editor.putInt("ties", ties)
+        editor.apply()
+
+        // Update the UI
+        updateStats()
+
+        // Show a confirmation message
+        Toast.makeText(this, "Scores have been reset!", Toast.LENGTH_SHORT).show()
     }
 
     override fun onCreateDialog(id: Int): Dialog? {
@@ -222,4 +330,14 @@ class MainActivity : ComponentActivity() {
         const val DIALOG_QUIT_ID = 1
         const val DIALOG_ABOUT_ID = 2
     }
+
+    private fun saveDifficulty(difficulty: DifficultyLevel) {
+        prefs.edit().putInt("difficulty", difficulty.ordinal).apply()
+    }
+
+    private fun loadDifficulty(): TicTacToeGame.DifficultyLevel {
+        val ordinal = prefs.getInt("difficulty", TicTacToeGame.DifficultyLevel.Easy.ordinal)
+        return TicTacToeGame.DifficultyLevel.values().getOrElse(ordinal) { TicTacToeGame.DifficultyLevel.Easy }
+    }
+
 }

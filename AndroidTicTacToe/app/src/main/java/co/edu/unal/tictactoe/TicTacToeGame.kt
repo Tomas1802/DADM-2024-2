@@ -10,7 +10,7 @@ class TicTacToeGame {
         const val BOARD_SIZE = 9
     }
 
-    private val board = CharArray(BOARD_SIZE) { OPEN_SPOT }
+    private var board = CharArray(BOARD_SIZE) { OPEN_SPOT }
     enum class DifficultyLevel {
         Easy, Harder, Expert
     };
@@ -25,6 +25,11 @@ class TicTacToeGame {
             board[i] = OPEN_SPOT
         }
     }
+
+    fun setBoard(newBoard: CharArray) {
+        board = newBoard.clone()
+    }
+
 
     fun setMove(player: Char, location: Int): Boolean {
         if (board[location] == OPEN_SPOT) {
@@ -148,4 +153,5 @@ class TicTacToeGame {
     fun setDifficultyLevel(difficultyLevel: DifficultyLevel) {
         mDifficultyLevel = difficultyLevel
     }
+
 }
