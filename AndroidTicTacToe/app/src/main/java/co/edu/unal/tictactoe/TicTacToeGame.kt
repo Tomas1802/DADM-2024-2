@@ -43,7 +43,7 @@ class TicTacToeGame {
         var move = -1
         if (mDifficultyLevel == DifficultyLevel.Easy) move = getRandomMove()
         else if (mDifficultyLevel == DifficultyLevel.Harder) {
-            move = getWinningMove()
+            move = getBlockingMove()
             if (move == -1) move = getRandomMove()
         } else if (mDifficultyLevel == DifficultyLevel.Expert) {
             move = getWinningMove()
@@ -153,5 +153,4 @@ class TicTacToeGame {
     fun setDifficultyLevel(difficultyLevel: DifficultyLevel) {
         mDifficultyLevel = difficultyLevel
     }
-
 }

@@ -2,7 +2,7 @@ package co.edu.unal.tictactoe
 
 import android.app.AlertDialog
 import android.app.Dialog
-import android.content.SharedPreferences
+import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -13,131 +13,81 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import co.edu.unal.tictactoe.TicTacToeGame.DifficultyLevel
+import co.edu.unal.tictactoe.domain.StateHandler
 
 
 class MainActivity : ComponentActivity() {
-    private lateinit var prefs: SharedPreferences
-    private lateinit var mGame: TicTacToeGame
+
+    private lateinit var gameSettings: TicTacToeGame
     private lateinit var mBoardButtons: Array<Button>
     private lateinit var buttonRestart: Button
     private lateinit var mInfoTextView: TextView
-    private var gameOver = false
+    private lateinit var moveMediaPlayer: MediaPlayer
+    private lateinit var winMediaPlayer: MediaPlayer
+    private lateinit var loseMediaPlayer: MediaPlayer
+    private lateinit var computerMediaPlayer: MediaPlayer
     private var currentTurn = 1
     private val handler = Handler(Looper.getMainLooper())
     private var isHumanFirst = true
-    private var mGameOver = false
-    private var wins = 0
-    private var losses = 0
-    private var ties = 0
+    private lateinit var stateHandler: StateHandler
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.main)
 
-        prefs = getSharedPreferences("tic_tac_toe_prefs", MODE_PRIVATE)
+        gameSettings = TicTacToeGame()
+        stateHandler = StateHandler(this)
 
-        // Restore persistent data
-        wins = prefs.getInt("humanWins", 0)
-        losses = prefs.getInt("computerWins", 0)
-        ties = prefs.getInt("ties", 0)
+        stateHandler.restoreState()
+        gameSettings.setDifficultyLevel(stateHandler.loadDifficulty())
 
-        // Update the UI with restored data
-        updateStats()
-
-        // Restore game state
-        if (savedInstanceState != null) {
-            gameOver = savedInstanceState.getBoolean("gameOver")
-            currentTurn = savedInstanceState.getInt("currentTurn")
-            if (!gameOver && currentTurn == 2) {
-                handler.postDelayed({ mGame.getComputerMove() }, 1000)
-            }
-        }
-
-        mBoardButtons = arrayOf(
-            findViewById(R.id.button1),
-            findViewById(R.id.button2),
-            findViewById(R.id.button3),
-            findViewById(R.id.button4),
-            findViewById(R.id.button5),
-            findViewById(R.id.button6),
-            findViewById(R.id.button7),
-            findViewById(R.id.button8),
-            findViewById(R.id.button9)
-        )
-
-        mInfoTextView = findViewById(R.id.statusTextView)
-        buttonRestart = findViewById(R.id.button_restart)
-
-        mGame = TicTacToeGame()
-
-        val difficulty = loadDifficulty()
-        mGame.setDifficultyLevel(difficulty)
-
+        initButtons()
+        updateUIStats()
         startNewGame()
-
-        for (i in mBoardButtons.indices) {
-            mBoardButtons[i].setOnClickListener { onButtonClick(i) }
-        }
-
-        buttonRestart.setOnClickListener {
-            startNewGame()
-            buttonRestart.visibility = View.INVISIBLE
-        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
 
-        // Save the game board state
-        outState.putCharArray("board", mGame.getBoard())
+        stateHandler.saveGameState()
 
-        // Save the current game state
-        outState.putBoolean("gameOver", mGameOver)
+        outState.putCharArray("board", gameSettings.getBoard())
+        outState.putBoolean("gameOver", stateHandler.getState().isGameOver())
         outState.putBoolean("isHumanFirst", isHumanFirst)
 
-        // Save player statistics
-        outState.putInt("wins", wins)
-        outState.putInt("losses", losses)
-        outState.putInt("ties", ties)
+        for ((key, value) in stateHandler.getState().getValue()) {
+            outState.putInt(key, value)
+        }
 
-        // Save the current info text
         outState.putString("infoText", mInfoTextView.text.toString())
-        saveDifficulty(mGame.getDifficultyLevel())
+        stateHandler.saveDifficulty(gameSettings.getDifficultyLevel())
     }
 
     override fun onRestoreInstanceState(savedInstanceState: Bundle) {
         super.onRestoreInstanceState(savedInstanceState)
 
-        // Restore the game board state
-        mGame.setBoard(savedInstanceState.getCharArray("board")!!)
-
-        // Restore the current game state
-        mGameOver = savedInstanceState.getBoolean("gameOver")
+        stateHandler.setGameOver(savedInstanceState.getBoolean("gameOver"))
+        gameSettings.setBoard(savedInstanceState.getCharArray("board")!!)
+        stateHandler.setGameOver(savedInstanceState.getBoolean("gameOver"))
         isHumanFirst = savedInstanceState.getBoolean("isHumanFirst")
+        currentTurn = savedInstanceState.getInt("currentTurn")
 
-        // Restore player statistics
-        wins = savedInstanceState.getInt("wins")
-        losses = savedInstanceState.getInt("losses")
-        ties = savedInstanceState.getInt("ties")
+        if (!stateHandler.getState().isGameOver() && currentTurn == 2) {
+            handler.postDelayed({ gameSettings.getComputerMove() }, 1000)
+        }
 
-        // Restore the current info text
+        stateHandler.restoreState()
+
         mInfoTextView.text = savedInstanceState.getString("infoText")
-        if(mGameOver) buttonRestart.visibility = View.VISIBLE
-        // Update the UI elements to reflect restored state
+        if(stateHandler.getState().isGameOver()) buttonRestart.visibility = View.VISIBLE
+
         updateBoard()
-        updateStats()
+        updateUIStats()
     }
 
     override fun onStop() {
         super.onStop()
-
-        // Save persistent data
-        val editor = prefs.edit()
-        editor.putInt("humanWins", wins)
-        editor.putInt("computerWins", losses)
-        editor.putInt("ties", ties)
-        editor.apply() // Save changes asynchronously
+        stateHandler.saveGameState()
     }
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
@@ -172,23 +122,34 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun initButtons(){
+        mInfoTextView = findViewById(R.id.statusTextView)
+        buttonRestart = findViewById(R.id.button_restart)
+        mBoardButtons = arrayOf(
+            findViewById(R.id.button1),
+            findViewById(R.id.button2),
+            findViewById(R.id.button3),
+            findViewById(R.id.button4),
+            findViewById(R.id.button5),
+            findViewById(R.id.button6),
+            findViewById(R.id.button7),
+            findViewById(R.id.button8),
+            findViewById(R.id.button9)
+        )
+
+        for (i in mBoardButtons.indices) {
+            mBoardButtons[i].setOnClickListener { onButtonClick(i) }
+        }
+
+        buttonRestart.setOnClickListener {
+            startNewGame()
+            buttonRestart.visibility = View.INVISIBLE
+        }
+    }
+
     private fun resetScores() {
-        // Reset score variables
-        wins = 0
-        losses = 0
-        ties = 0
-
-        // Update SharedPreferences to save reset scores
-        val editor = prefs.edit()
-        editor.putInt("humanWins", wins)
-        editor.putInt("computerWins", losses)
-        editor.putInt("ties", ties)
-        editor.apply()
-
-        // Update the UI
-        updateStats()
-
-        // Show a confirmation message
+        stateHandler.resetState()
+        updateUIStats()
         Toast.makeText(this, "Scores have been reset!", Toast.LENGTH_SHORT).show()
     }
 
@@ -207,12 +168,12 @@ class MainActivity : ComponentActivity() {
 
                 // TODO: Set selected, an integer (0 to n-1), for the Difficulty dialog.
                 // Assuming `selected` is the currently selected difficulty level.
-                var selected = mGame.getDifficultyLevel().ordinal// Replace with how your game retrieves difficulty
+                var selected = gameSettings.getDifficultyLevel().ordinal// Replace with how your game retrieves difficulty
                 builder.setSingleChoiceItems(levels, selected) { dialogInterface, item ->
                     dialogInterface.dismiss() // Close dialog
 
                     // TODO: Set the difficulty level in the game.
-                    mGame.setDifficultyLevel(TicTacToeGame.DifficultyLevel.values()[item]) // Replace with how your game sets difficulty level.
+                    gameSettings.setDifficultyLevel(TicTacToeGame.DifficultyLevel.values()[item]) // Replace with how your game sets difficulty level.
 
                     // Display the selected difficulty level
                     Toast.makeText(applicationContext, levels[item], Toast.LENGTH_SHORT).show()
@@ -244,20 +205,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startNewGame() {
-        mGame.clearBoard()
+        gameSettings.clearBoard()
         for (i in mBoardButtons.indices) {
             mBoardButtons[i].setBackgroundResource(R.drawable.custom_button) // Reset to default button style
             mBoardButtons[i].isEnabled = true // Re-enable buttons for a new game
         }
         mInfoTextView.text = getString(R.string.first_human)
-        mGameOver = false
+        stateHandler.setGameOver(false)
 
         if (isHumanFirst) {
             mInfoTextView.text = getString(R.string.first_human)
         } else {
             mInfoTextView.text = getString(R.string.first_computer)
-            val move = mGame.getComputerMove()
-            mGame.setMove(TicTacToeGame.COMPUTER_PLAYER, move)
+            val move = gameSettings.getComputerMove()
+            gameSettings.setMove(TicTacToeGame.COMPUTER_PLAYER, move)
             updateBoard() // Show the computer's move
         }
 
@@ -265,14 +226,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onButtonClick(location: Int) {
-        if (!mGameOver && mGame.setMove(TicTacToeGame.HUMAN_PLAYER, location)) {
+        moveMediaPlayer.start()
+        if (!stateHandler.getState().isGameOver() && gameSettings.setMove(TicTacToeGame.HUMAN_PLAYER, location)) {
             updateBoard()
-            val winner = mGame.checkForWinner()
+            val winner = gameSettings.checkForWinner()
             if (winner == 0) {
                 mInfoTextView.text = getString(R.string.turn_computer)
-                val move = mGame.getComputerMove()
-                mGame.setMove(TicTacToeGame.COMPUTER_PLAYER, move)
-                updateBoard()
+                val move = gameSettings.getComputerMove()
+
+                val handler = Handler(Looper.getMainLooper())
+                handler.postDelayed({
+                    computerMediaPlayer.start()
+                    gameSettings.setMove(TicTacToeGame.COMPUTER_PLAYER, move)
+                    updateBoard()
+                }, 500)
             }
             checkGameStatus()
         }
@@ -280,7 +247,7 @@ class MainActivity : ComponentActivity() {
 
     private fun updateBoard() {
         for (i in mBoardButtons.indices) {
-            when (mGame.getBoard()[i]) {
+            when (gameSettings.getBoard()[i]) {
                 TicTacToeGame.HUMAN_PLAYER -> {
                     mBoardButtons[i].setBackgroundResource(R.drawable.o_image)
                 }
@@ -293,36 +260,37 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkGameStatus() {
-        val restartButton: Button = findViewById(R.id.button_restart)
-
-        when (mGame.checkForWinner()) {
+        when (gameSettings.checkForWinner()) {
             1 -> { // Tie
-                ties++
+                stateHandler.increaseTies()
                 mInfoTextView.text = getString(R.string.result_tie)
-                mGameOver = true
-                restartButton.visibility = View.VISIBLE
+                stateHandler.setGameOver(true)
+                updateUIStats()
             }
             2 -> { // Human won
-                wins++
+                stateHandler.increaseWins()
                 mInfoTextView.text = getString(R.string.result_human_wins)
-                mGameOver = true
-                restartButton.visibility = View.VISIBLE
+                stateHandler.setGameOver(true)
+                winMediaPlayer.start()
+                updateUIStats()
             }
             3 -> { // Computer won
-                losses++
+                stateHandler.increaseLosses()
                 mInfoTextView.text = getString(R.string.result_computer_wins)
-                mGameOver = true
-                restartButton.visibility = View.VISIBLE
+                stateHandler.setGameOver(true)
+                loseMediaPlayer.start()
+                updateUIStats()
             }
         }
-
-        updateStats()
     }
 
-    private fun updateStats() {
-        findViewById<TextView>(R.id.winsTextView).text = "Wins: $wins"
-        findViewById<TextView>(R.id.lossesTextView).text = "Losses: $losses"
-        findViewById<TextView>(R.id.tiesTextView).text = "Ties: $ties"
+    private fun updateUIStats() {
+        val restartButton: Button = findViewById(R.id.button_restart)
+        restartButton.visibility = if (stateHandler.getState().isGameOver()) View.VISIBLE else View.INVISIBLE
+
+        findViewById<TextView>(R.id.winsTextView).text = "Wins: ${stateHandler.getState().getWins()}"
+        findViewById<TextView>(R.id.lossesTextView).text = "Losses: ${stateHandler.getState().getLosses()}"
+        findViewById<TextView>(R.id.tiesTextView).text = "Ties: ${stateHandler.getState().getTies()}"
     }
 
     companion object {
@@ -331,13 +299,20 @@ class MainActivity : ComponentActivity() {
         const val DIALOG_ABOUT_ID = 2
     }
 
-    private fun saveDifficulty(difficulty: DifficultyLevel) {
-        prefs.edit().putInt("difficulty", difficulty.ordinal).apply()
+    override fun onResume() {
+        super.onResume()
+        moveMediaPlayer = MediaPlayer.create(applicationContext, R.raw.move)
+        winMediaPlayer = MediaPlayer.create(applicationContext, R.raw.win)
+        loseMediaPlayer = MediaPlayer.create(applicationContext, R.raw.lose)
+        computerMediaPlayer = MediaPlayer.create(applicationContext, R.raw.computer)
     }
 
-    private fun loadDifficulty(): TicTacToeGame.DifficultyLevel {
-        val ordinal = prefs.getInt("difficulty", TicTacToeGame.DifficultyLevel.Easy.ordinal)
-        return TicTacToeGame.DifficultyLevel.values().getOrElse(ordinal) { TicTacToeGame.DifficultyLevel.Easy }
+    override fun onPause() {
+        super.onPause()
+        moveMediaPlayer.release()
+        winMediaPlayer.release()
+        loseMediaPlayer.release()
+        computerMediaPlayer.release()
     }
 
 }
