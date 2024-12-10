@@ -238,6 +238,7 @@ class MainActivity : ComponentActivity() {
                 handler.postDelayed({
                     computerMediaPlayer.start()
                     gameSettings.setMove(TicTacToeGame.COMPUTER_PLAYER, move)
+                    checkGameStatus()
                     updateBoard()
                 }, 500)
             }
