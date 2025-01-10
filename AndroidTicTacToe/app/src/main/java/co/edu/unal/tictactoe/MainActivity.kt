@@ -2,10 +2,12 @@ package co.edu.unal.tictactoe
 
 import android.app.AlertDialog
 import android.app.Dialog
+import android.content.Intent
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
@@ -14,18 +16,36 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import co.edu.unal.tictactoe.domain.StateHandler
+import co.edu.unal.tictactoe.services.PlayerIdManager
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.GenericTypeIndicator
+import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 
 class MainActivity : ComponentActivity() {
-
+    private lateinit var database: DatabaseReference
     private lateinit var gameSettings: TicTacToeGame
     private lateinit var mBoardButtons: Array<Button>
+    private lateinit var winstext: TextView
+    private lateinit var lossestext: TextView
+    private lateinit var tiestext: TextView
     private lateinit var buttonRestart: Button
+    private lateinit var buttonEnd: Button
     private lateinit var mInfoTextView: TextView
     private lateinit var moveMediaPlayer: MediaPlayer
     private lateinit var winMediaPlayer: MediaPlayer
     private lateinit var loseMediaPlayer: MediaPlayer
     private lateinit var computerMediaPlayer: MediaPlayer
+    private lateinit var playerIdManager: PlayerIdManager
+    private var multiplayerGameId: String? = null
+    private var isGuest: Boolean = false
     private var currentTurn = 1
     private val handler = Handler(Looper.getMainLooper())
     private var isHumanFirst = true
@@ -35,7 +55,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.main)
 
-        gameSettings = TicTacToeGame()
+        playerIdManager= PlayerIdManager(applicationContext)
+
+        val gameId = intent.getStringExtra("gameId")
+        val guest = intent.getStringExtra("guest")
+
+        multiplayerGameId = gameId
+        isGuest = guest.toBoolean()
+
+        database = FirebaseDatabase.getInstance().reference.child("games")
+
+        gameSettings = TicTacToeGame(multiplayerGameId, guest.toBoolean())
         stateHandler = StateHandler(this)
 
         stateHandler.restoreState()
@@ -44,6 +74,34 @@ class MainActivity : ComponentActivity() {
         initButtons()
         updateUIStats()
         startNewGame()
+
+        if (multiplayerGameId != null) {
+            checkButtonsBehavior();
+            listenForBoardUpdates(multiplayerGameId!!)
+            listenForOpponentJoin()
+        }
+    }
+
+    private fun checkButtonsBehavior()
+    {
+        val status = database.child(multiplayerGameId!!).child("status")
+
+        status.get().addOnSuccessListener { snapshot ->
+            if (snapshot.exists()) {
+                val status = snapshot.getValue(String::class.java)
+                if(status == "waiting") disableBoardButtons()
+            }
+        }
+
+        val currentTurn = database.child(multiplayerGameId!!).child("currentTurn")
+
+        currentTurn.get().addOnSuccessListener { snapshot ->
+            if (snapshot.exists()) {
+                val turn = snapshot.getValue(String::class.java)
+                if(turn != playerIdManager.getOrCreateUserId()) disableBoardButtons()
+                else if (turn == playerIdManager.getOrCreateUserId()) enableBoardButtons()
+            }
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -72,14 +130,24 @@ class MainActivity : ComponentActivity() {
         isHumanFirst = savedInstanceState.getBoolean("isHumanFirst")
         currentTurn = savedInstanceState.getInt("currentTurn")
 
-        if (!stateHandler.getState().isGameOver() && currentTurn == 2) {
+        if (multiplayerGameId == null && !stateHandler.getState().isGameOver() && currentTurn == 2) {
             handler.postDelayed({ gameSettings.getComputerMove() }, 1000)
+        }
+        else if(multiplayerGameId != null)
+        {
+
         }
 
         stateHandler.restoreState()
 
         mInfoTextView.text = savedInstanceState.getString("infoText")
-        if(stateHandler.getState().isGameOver()) buttonRestart.visibility = View.VISIBLE
+
+        if(stateHandler.getState().isGameOver()){
+            if(multiplayerGameId == null)
+                buttonRestart.visibility = View.VISIBLE
+            else
+                buttonEnd.visibility = View.VISIBLE
+        }
 
         updateBoard()
         updateUIStats()
@@ -123,8 +191,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun initButtons(){
+        winstext = findViewById(R.id.winsTextView)
+        lossestext = findViewById(R.id.lossesTextView)
+        tiestext = findViewById(R.id.tiesTextView)
+
+        if(multiplayerGameId != null){
+            winstext.visibility = View.INVISIBLE
+            lossestext.visibility = View.INVISIBLE
+            tiestext.visibility = View.INVISIBLE
+        }
+        else{
+            winstext.visibility = View.VISIBLE
+            lossestext.visibility = View.VISIBLE
+            tiestext.visibility = View.VISIBLE
+        }
+
         mInfoTextView = findViewById(R.id.statusTextView)
         buttonRestart = findViewById(R.id.button_restart)
+        buttonEnd = findViewById(R.id.end_restart)
         mBoardButtons = arrayOf(
             findViewById(R.id.button1),
             findViewById(R.id.button2),
@@ -144,6 +228,26 @@ class MainActivity : ComponentActivity() {
         buttonRestart.setOnClickListener {
             startNewGame()
             buttonRestart.visibility = View.INVISIBLE
+        }
+
+        buttonEnd.setOnClickListener {
+            val gameRef = database.child("games").child(multiplayerGameId!!)
+
+            // Delete the game from Firebase
+            gameRef.removeValue()
+                .addOnSuccessListener {
+                    Log.d("Firebase", "Game successfully deleted")
+
+                    // Return to the MultiplayerActivity
+                    val intent = Intent(this, MultiplayerActivity::class.java)
+                    intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP // Clear previous activities
+                    startActivity(intent)
+                    finish() // Close the current activity
+                }
+                .addOnFailureListener { error ->
+                    Log.e("Firebase", "Error deleting game: ${error.message}")
+                    Toast.makeText(this, "Failed to delete game. Please try again.", Toast.LENGTH_SHORT).show()
+                }
         }
     }
 
@@ -196,7 +300,7 @@ class MainActivity : ComponentActivity() {
                 val customView = layoutInflater.inflate(R.layout.about_dialog, null) // Inflate custom view
                 builder.setView(customView)
                     .setTitle(R.string.about_title)
-                    .setPositiveButton(R.string.ok, null) // Add "OK" button to dismiss the dialog
+                    .setPositiveButton(R.string.okay, null) // Add "OK" button to dismiss the dialog
                 dialog = builder.create()
             }
         }
@@ -210,27 +314,41 @@ class MainActivity : ComponentActivity() {
             mBoardButtons[i].setBackgroundResource(R.drawable.custom_button) // Reset to default button style
             mBoardButtons[i].isEnabled = true // Re-enable buttons for a new game
         }
-        mInfoTextView.text = getString(R.string.first_human)
-        stateHandler.setGameOver(false)
 
-        if (isHumanFirst) {
+        if(multiplayerGameId == null){
             mInfoTextView.text = getString(R.string.first_human)
-        } else {
-            mInfoTextView.text = getString(R.string.first_computer)
-            val move = gameSettings.getComputerMove()
-            gameSettings.setMove(TicTacToeGame.COMPUTER_PLAYER, move)
-            updateBoard() // Show the computer's move
+
+            if (isHumanFirst) {
+                mInfoTextView.text = getString(R.string.first_human)
+            } else {
+                mInfoTextView.text = getString(R.string.first_computer)
+                val move = gameSettings.getComputerMove()
+                gameSettings.setMove(TicTacToeGame.COMPUTER_PLAYER, move)
+                updateBoard() // Show the computer's move
+            }
+
+            isHumanFirst = !isHumanFirst
+        }
+        else{
+            mInfoTextView.text = getString(R.string.waiting_player)
         }
 
-        isHumanFirst = !isHumanFirst
+        stateHandler.setGameOver(false)
     }
 
     private fun onButtonClick(location: Int) {
+
+        var movement = TicTacToeGame.HUMAN_PLAYER
+
+        if(isGuest) movement = TicTacToeGame.COMPUTER_PLAYER
+
         moveMediaPlayer.start()
-        if (!stateHandler.getState().isGameOver() && gameSettings.setMove(TicTacToeGame.HUMAN_PLAYER, location)) {
+
+        if (!stateHandler.getState().isGameOver() && gameSettings.setMove(movement, location)) {
             updateBoard()
             val winner = gameSettings.checkForWinner()
-            if (winner == 0) {
+
+            if (winner == 0 && multiplayerGameId == null) {
                 mInfoTextView.text = getString(R.string.turn_computer)
                 val move = gameSettings.getComputerMove()
 
@@ -242,7 +360,56 @@ class MainActivity : ComponentActivity() {
                     updateBoard()
                 }, 500)
             }
+            else if (multiplayerGameId != null){
+                getGamePlayers(multiplayerGameId!!) { player1, player2 ->
+                    if (player1 != null && player2 != null) {
+                        if(player1 == playerIdManager.getOrCreateUserId())
+                        {
+                            database.child(multiplayerGameId!!).child("currentTurn").setValue(player2)
+                        }
+                        else
+                        {
+                            database.child(multiplayerGameId!!).child("currentTurn").setValue(player1)
+                        }
+
+                        database.child(multiplayerGameId!!).child("board").setValue(gameSettings.getBoard().map { it.toString() })
+
+                        mInfoTextView.text = getString(R.string.turn_opponent)
+
+                        updateBoard()
+                        checkGameStatus()
+                    }
+                }
+            }
             checkGameStatus()
+        }
+    }
+
+    private fun getGamePlayers(gameId: String, callback: (String?, String?) -> Unit) {
+        database.child(gameId).get().addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                val snapshot = task.result
+                val player1 = snapshot?.child("player1")?.getValue(String::class.java)
+                val player2 = snapshot?.child("player2")?.getValue(String::class.java)
+                callback(player1, player2)
+            } else {
+                println("Failed to retrieve players: ${task.exception?.message}")
+                callback(null, null)
+            }
+        }
+    }
+
+    private fun disableBoardButtons() {
+        for (button in mBoardButtons) {
+            button.isEnabled = false
+        }
+    }
+
+    private fun enableBoardButtons() {
+        for (i in mBoardButtons.indices) {
+            if (gameSettings.getBoard()[i] == ' ') { // Check if the spot is open
+                mBoardButtons[i].isEnabled = true
+            }
         }
     }
 
@@ -271,15 +438,47 @@ class MainActivity : ComponentActivity() {
             2 -> { // Human won
                 stateHandler.increaseWins()
                 mInfoTextView.text = getString(R.string.result_human_wins)
-                stateHandler.setGameOver(true)
-                winMediaPlayer.start()
-                updateUIStats()
+
+                if(multiplayerGameId != null) {
+                    checkMultiplayerResult();
+                }
+                else{
+                    stateHandler.setGameOver(true)
+                    winMediaPlayer.start()
+                    updateUIStats()
+                }
+
             }
             3 -> { // Computer won
-                stateHandler.increaseLosses()
-                mInfoTextView.text = getString(R.string.result_computer_wins)
+                if(multiplayerGameId != null) {
+                    checkMultiplayerResult();
+                }
+                else{
+                    stateHandler.increaseLosses()
+                    stateHandler.setGameOver(true)
+                    loseMediaPlayer.start()
+                    updateUIStats()
+                }
+            }
+        }
+    }
+
+    private fun checkMultiplayerResult()
+    {
+        val currentTurn = database.child(multiplayerGameId!!).child("currentTurn")
+
+        currentTurn.get().addOnSuccessListener { snapshot ->
+            if (snapshot.exists()) {
+                val turn = snapshot.getValue(String::class.java)
+                if(turn != playerIdManager.getOrCreateUserId()){
+                    mInfoTextView.text = getString(R.string.result_human_wins)
+                    winMediaPlayer.start()
+                }
+                else if(turn == playerIdManager.getOrCreateUserId()){
+                    mInfoTextView.text = getString(R.string.result_opponent_wins)
+                    loseMediaPlayer.start()
+                }
                 stateHandler.setGameOver(true)
-                loseMediaPlayer.start()
                 updateUIStats()
             }
         }
@@ -287,7 +486,11 @@ class MainActivity : ComponentActivity() {
 
     private fun updateUIStats() {
         val restartButton: Button = findViewById(R.id.button_restart)
-        restartButton.visibility = if (stateHandler.getState().isGameOver()) View.VISIBLE else View.INVISIBLE
+
+        if(multiplayerGameId == null)
+            restartButton.visibility = if (stateHandler.getState().isGameOver()) View.VISIBLE else View.INVISIBLE
+        else
+            buttonEnd.visibility = if (stateHandler.getState().isGameOver()) View.VISIBLE else View.INVISIBLE
 
         findViewById<TextView>(R.id.winsTextView).text = "Wins: ${stateHandler.getState().getWins()}"
         findViewById<TextView>(R.id.lossesTextView).text = "Losses: ${stateHandler.getState().getLosses()}"
@@ -314,6 +517,72 @@ class MainActivity : ComponentActivity() {
         winMediaPlayer.release()
         loseMediaPlayer.release()
         computerMediaPlayer.release()
+    }
+
+    private fun listenForOpponentJoin() {
+        database.child(multiplayerGameId!!).child("status").addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                // Retrieve the updated board from Firebase
+                val status = snapshot.getValue(String::class.java)
+
+                if (status == "ongoing" && !isGuest) {
+                    mInfoTextView.text = getString(R.string.first_human)
+                    enableBoardButtons()
+                }
+                else if (status == "ongoing" && isGuest) {
+                    mInfoTextView.text = getString(R.string.first_opponent)
+                    //disableBoardButtons()
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Log.e("Firebase", "Error listening to board updates: ${error.message}")
+            }
+        })
+    }
+
+    private fun listenForBoardUpdates(gameId: String) {
+        database.child(gameId).child("board").addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                checkButtonsBehavior()
+                // Retrieve the updated board from Firebase
+                val boardList = snapshot.getValue(object : GenericTypeIndicator<List<String>>() {})
+
+                if (boardList != null) {
+                    // Convert the List<String> back to a CharArray
+                    val updatedBoard = boardList.map { it[0] }.toCharArray()
+
+                    // Update the local game board
+                    gameSettings.setBoard(updatedBoard)
+
+                    // Refresh the board UI
+                    updateBoard()
+
+                    val currentTurn = database.child(gameId).child("currentTurn")
+
+                    currentTurn.get().addOnSuccessListener { snapshot ->
+                        if (snapshot.exists()) {
+                            val turn = snapshot.getValue(String::class.java)
+
+                            var turnName = "contestant"
+
+                            if(isGuest) turnName = "opponent"
+
+                            if(turn == turnName){
+                                //enableBoardButtons()
+                                mInfoTextView.text = getString(R.string.turn_computer)
+                            }
+
+                            checkGameStatus()
+                        }
+                    }
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Log.e("Firebase", "Error listening to board updates: ${error.message}")
+            }
+        })
     }
 
 }

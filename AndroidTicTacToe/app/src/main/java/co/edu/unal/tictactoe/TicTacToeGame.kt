@@ -1,15 +1,23 @@
 package co.edu.unal.tictactoe
 
+import android.util.Log
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.GenericTypeIndicator
+import com.google.firebase.database.ValueEventListener
 
-class TicTacToeGame {
 
+class TicTacToeGame(private val gameId: String?, private val guest: Boolean = false) {
     companion object {
-        const val HUMAN_PLAYER = 'X'
-        const val COMPUTER_PLAYER = 'O'
+        var HUMAN_PLAYER = 'X'
+        var COMPUTER_PLAYER = 'O'
         const val OPEN_SPOT = ' '
         const val BOARD_SIZE = 9
     }
 
+    private lateinit var database: DatabaseReference
     private var board = CharArray(BOARD_SIZE) { OPEN_SPOT }
     enum class DifficultyLevel {
         Easy, Harder, Expert
