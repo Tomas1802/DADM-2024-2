@@ -1,0 +1,61 @@
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <EditText
+            android:id="@+id/etName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Company Name"
+            android:inputType="text" />
+
+        <EditText
+            android:id="@+id/etUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Website URL"
+            android:inputType="textUri" />
+
+        <EditText
+            android:id="@+id/etPhone"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Phone Number"
+            android:inputType="phone" />
+
+        <EditText
+            android:id="@+id/etEmail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Email Address"
+            android:inputType="textEmailAddress" />
+
+        <EditText
+            android:id="@+id/etProducts"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Products and Services"
+            android:inputType="textMultiLine" />
+
+        <EditText
+            android:id="@+id/etCategory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Category"
+            android:inputType="text" />
+
+        <Button
+            android:id="@+id/btnUpdate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Update Company"
+            android:layout_marginTop="16dp" />
+    </LinearLayout>
+</ScrollView>

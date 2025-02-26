@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1095563056551",
+    "project_id": "tictactoe-35e2e",
+    "storage_bucket": "tictactoe-35e2e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1095563056551:android:e60d2b7fdeffffee3e1282",
+        "android_client_info": {
+          "package_name": "co.edu.unal.tictactoe"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCT3gTVUTsL1DPjQCJ5mY1qk6gsPZzB09g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
